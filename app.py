@@ -5,10 +5,10 @@ st.set_page_config(layout="wide")
 st.title("FABOT – Tiruppur Production System")
 
 # -------- LAYOUT -------- #
-col1, col2 = st.columns([1,1])
+left, right = st.columns([1,1])
 
 # -------- INPUT PANEL -------- #
-with col1:
+with left:
     st.subheader("INPUT PANEL")
 
     ne = st.number_input("Ne", min_value=0.0)
@@ -26,16 +26,19 @@ with col1:
         base_gg = 28
         Cf = 0.60
         efficiency = 0.90
+        width_factor = 0.67
     elif fabric_type == "Rib":
         gg_options = [14, 16, 18, 20]
         base_gg = 18
         Cf = 0.82
         efficiency = 0.88
+        width_factor = 0.62
     else:
         gg_options = [20, 24, 28, 32]
         base_gg = 24
         Cf = 1.00
         efficiency = 0.86
+        width_factor = 0.70
 
     gg = st.selectbox("Gauge (GG)", gg_options)
 
@@ -60,6 +63,10 @@ with col1:
 
     color = st.selectbox("Color", ["Light", "Medium", "Dark"])
 
+    st.divider()
+    st.subheader("Reverse Planning")
+    target_width = st.number_input("Target Finished Width (inches)", min_value=0.0)
+
 # -------- CALCULATION -------- #
 
 if tex_input > 0:
@@ -75,13 +82,11 @@ LL *= (1 - shrinkage / 100)
 LL *= 0.12
 LL *= (base_gg / gg)
 
-# Rib correction
 if rib_type == "2x2":
     LL /= 1.08
 elif rib_type == "3x3":
     LL /= 1.15
 
-# Composition effect
 content_factor = (
     (cotton/100)*1.00 +
     (poly/100)*1.05 +
@@ -90,11 +95,9 @@ content_factor = (
 )
 LL *= content_factor
 
-# Spandex tightening
 if spandex > 0:
     LL *= (1 - spandex * 0.005)
 
-# Process correction
 if "Compacting" in process:
     LL *= 1.08
 if "Brushing" in process:
@@ -104,20 +107,19 @@ if "Raising" in process:
 if "Elastomeric Finish" in process:
     LL *= 0.92
 
-# Color correction
 if color == "Medium":
     LL *= 1.02
 elif color == "Dark":
     LL *= 1.05
 
-# Clamp
 LL = max(2.4, min(3.4, LL))
 
-# Width calculation
+# Width
 grey_width = math.pi * dia * efficiency
-finished_width = grey_width * (1 - shrinkage/100)
+structure_width = grey_width * width_factor
+finished_width = structure_width * (1 - shrinkage/100)
 
-# -------- STATUS -------- #
+# Status
 if LL < 2.6:
     status = "TIGHT ⚠"
 elif LL <= 3.0:
@@ -126,14 +128,14 @@ else:
     status = "LOOSE ⚠"
 
 # -------- RESULT PANEL -------- #
-with col2:
+with right:
     st.subheader("RESULT PANEL")
 
     st.metric("Loop Length", f"{round(LL,2)} mm")
     st.metric("Status", status)
 
     st.metric("Finished Width", f"{round(finished_width,1)} in")
-    st.metric("Machine Dia", f"{round(dia,1)} in")
+    st.metric("Grey Width", f"{round(grey_width,1)} in")
 
     st.divider()
 
@@ -154,3 +156,15 @@ with col2:
     if spandex > 0:
         denier = gsm * (spandex/100) * 1.2
         st.write(f"Spandex → {round(denier)} Denier")
+
+    # -------- REVERSE OUTPUT -------- #
+    if target_width > 0:
+        required_grey = target_width / (width_factor * (1 - shrinkage/100))
+        required_dia = required_grey / (math.pi * efficiency)
+        practical_dia = round(required_dia / 2) * 2
+
+        st.divider()
+        st.subheader("Reverse Planning Result")
+
+        st.write(f"Required Dia: {round(required_dia,1)} in")
+        st.success(f"Use Machine Dia: {practical_dia}\"")
