@@ -2,7 +2,7 @@ import streamlit as st
 import math
 
 st.set_page_config(layout="wide")
-st.title("FABOT – Tiruppur Production System")
+st.title("FABOT – Tiruppur Industrial Knitting System")
 
 # -------- LAYOUT -------- #
 left, right = st.columns([1,1])
@@ -25,20 +25,22 @@ with left:
         gg_options = [20, 24, 26, 28, 32]
         base_gg = 28
         Cf = 0.60
-        efficiency = 0.90
-        width_factor = 0.67
+        open_factor = 2.2
+        tubular_factor = 1.1
+
     elif fabric_type == "Rib":
         gg_options = [14, 16, 18, 20]
         base_gg = 18
         Cf = 0.82
-        efficiency = 0.88
-        width_factor = 0.62
+        open_factor = 2.05
+        tubular_factor = 1.02
+
     else:
         gg_options = [20, 24, 28, 32]
         base_gg = 24
         Cf = 1.00
-        efficiency = 0.86
-        width_factor = 0.70
+        open_factor = 2.25
+        tubular_factor = 1.12
 
     gg = st.selectbox("Gauge (GG)", gg_options)
 
@@ -47,6 +49,7 @@ with left:
         rib_type = st.selectbox("Rib Type", ["1x1", "2x2", "3x3"])
 
     st.subheader("Composition (%)")
+
     cotton = st.number_input("Cotton %", 0.0, 100.0)
     poly = st.number_input("Poly %", 0.0, 100.0)
     viscose = st.number_input("Viscose %", 0.0, 100.0)
@@ -63,9 +66,22 @@ with left:
 
     color = st.selectbox("Color", ["Light", "Medium", "Dark"])
 
+    # Finishing Mode
+    if spandex > 0:
+        default_mode = "Open Width"
+    else:
+        default_mode = "Tubular"
+
+    finishing_mode = st.selectbox(
+        "Finishing Mode",
+        ["Tubular", "Open Width"],
+        index=1 if default_mode == "Open Width" else 0
+    )
+
     st.divider()
     st.subheader("Reverse Planning")
-    target_width = st.number_input("Target Finished Width (inches)", min_value=0.0)
+
+    target_width = st.number_input("Target Finished Width", min_value=0.0)
 
 # -------- CALCULATION -------- #
 
@@ -77,16 +93,19 @@ else:
     st.warning("Enter Ne or Tex")
     st.stop()
 
+# Loop Length
 LL = gsm / (tex * Cf)
 LL *= (1 - shrinkage / 100)
 LL *= 0.12
 LL *= (base_gg / gg)
 
+# Rib adjustment
 if rib_type == "2x2":
     LL /= 1.08
 elif rib_type == "3x3":
     LL /= 1.15
 
+# Composition effect
 content_factor = (
     (cotton/100)*1.00 +
     (poly/100)*1.05 +
@@ -95,9 +114,11 @@ content_factor = (
 )
 LL *= content_factor
 
+# Spandex tightening
 if spandex > 0:
     LL *= (1 - spandex * 0.005)
 
+# Process
 if "Compacting" in process:
     LL *= 1.08
 if "Brushing" in process:
@@ -107,19 +128,28 @@ if "Raising" in process:
 if "Elastomeric Finish" in process:
     LL *= 0.92
 
+# Color
 if color == "Medium":
     LL *= 1.02
 elif color == "Dark":
     LL *= 1.05
 
+# Clamp
 LL = max(2.4, min(3.4, LL))
 
-# Width
-grey_width = math.pi * dia * efficiency
-structure_width = grey_width * width_factor
-finished_width = structure_width * (1 - shrinkage/100)
+# -------- WIDTH (FINAL INDUSTRIAL MODEL) -------- #
 
-# Status
+if finishing_mode == "Tubular":
+    grey_width = dia * tubular_factor
+    finished_width = grey_width * (1 - shrinkage/100)
+
+else:
+    grey_width = dia * open_factor
+    finished_width = grey_width * (1 - shrinkage/100)
+    finished_width *= 0.98  # tenter control
+
+# -------- STATUS -------- #
+
 if LL < 2.6:
     status = "TIGHT ⚠"
 elif LL <= 3.0:
@@ -128,6 +158,7 @@ else:
     status = "LOOSE ⚠"
 
 # -------- RESULT PANEL -------- #
+
 with right:
     st.subheader("RESULT PANEL")
 
@@ -136,6 +167,8 @@ with right:
 
     st.metric("Finished Width", f"{round(finished_width,1)} in")
     st.metric("Grey Width", f"{round(grey_width,1)} in")
+
+    st.metric("Finishing", finishing_mode)
 
     st.divider()
 
@@ -157,14 +190,19 @@ with right:
         denier = gsm * (spandex/100) * 1.2
         st.write(f"Spandex → {round(denier)} Denier")
 
-    # -------- REVERSE OUTPUT -------- #
+    # Reverse planning
     if target_width > 0:
-        required_grey = target_width / (width_factor * (1 - shrinkage/100))
-        required_dia = required_grey / (math.pi * efficiency)
-        practical_dia = round(required_dia / 2) * 2
+        if finishing_mode == "Tubular":
+            req_grey = target_width / (1 - shrinkage/100)
+            req_dia = req_grey / tubular_factor
+        else:
+            req_grey = target_width / ((1 - shrinkage/100) * 0.98)
+            req_dia = req_grey / open_factor
+
+        practical_dia = round(req_dia / 2) * 2
 
         st.divider()
-        st.subheader("Reverse Planning Result")
+        st.subheader("Reverse Planning")
 
-        st.write(f"Required Dia: {round(required_dia,1)} in")
+        st.write(f"Required Dia: {round(req_dia,1)} in")
         st.success(f"Use Machine Dia: {practical_dia}\"")
